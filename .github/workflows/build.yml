@@ -1,4 +1,4 @@
-# language: YAML, file: .github/workflows/build.yml, target: os-project i386 BIOS
+# # language: YAML, file: .github/workflows/build.yml, target: os-project i386 BIOS
 name: build-os-project
 
 on:
@@ -18,7 +18,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm qemu-system-x86 wget xz-utils make gcc xorriso
+          sudo apt-get install -y nasm qemu-system-x86 wget xz-utils make gcc
 
       - name: Cache i386-elf toolchain
         uses: actions/cache@v4
@@ -44,27 +44,18 @@ jobs:
           i386-elf-gcc --version
           nasm -v
           qemu-system-i386 --version | head -1
-          xorriso --version | head -1
 
-      - name: Build image
+      - name: Build
         run: |
           export PATH="$HOME/i386elfgcc/bin:$PATH"
+          ls -la src/
           cd src/build
-          make os-image.bin
+          make -j$(nproc)
 
       - name: Check image
         run: |
           ls -lh src/build/os-image.bin
           file src/build/os-image.bin
-
-      - name: Build ISO
-        run: |
-          mkdir -p iso
-          cp src/build/os-image.bin iso/
-          xorriso -as mkisofs -R -J \
-            -b os-image.bin \
-            -o os-project.iso iso/
-          ls -lh os-project.iso
 
       - name: QEMU smoke test
         run: |
@@ -73,9 +64,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: os-project
-          path: |
-            src/build/os-image.bin
-            os-project.iso
+          name: os-image
+          path: src/build/os-image.bin
           retention-days: 30
           if-no-files-found: error
