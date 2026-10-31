@@ -1,0 +1,70 @@
+# language: YAML, file: .github/workflows/build.yml, target: os-project i386 BIOS
+name: build-os-project
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 wget xz-utils make gcc
+
+      - name: Cache i386-elf toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/i386elfgcc
+          key: i386-elf-4.9.1
+
+      - name: Install i386-elf cross toolchain
+        run: |
+          if [ -x "$HOME/i386elfgcc/bin/i386-elf-gcc" ]; then
+            echo "toolchain cached"
+          else
+            wget -q -O /tmp/i386-elf.tar.xz http://newos.org/toolchains/i386-elf-4.9.1-Linux-x86_64.tar.xz
+            file /tmp/i386-elf.tar.xz | grep -q 'XZ compressed' || { echo "download failed"; exit 1; }
+            mkdir -p "$HOME/i386elfgcc"
+            tar -xf /tmp/i386-elf.tar.xz -C "$HOME/i386elfgcc" --strip-components=1
+          fi
+          echo "$HOME/i386elfgcc/bin" >> $GITHUB_PATH
+
+      - name: Verify tools
+        run: |
+          export PATH="$HOME/i386elfgcc/bin:$PATH"
+          i386-elf-gcc --version
+          nasm -v
+          qemu-system-i386 --version | head -1
+
+      - name: Build
+        run: |
+          export PATH="$HOME/i386elfgcc/bin:$PATH"
+          ls -la src/
+          cd src/build
+          make -j$(nproc)
+
+      - name: Check image
+        run: |
+          ls -lh src/build/os-image.bin
+          file src/build/os-image.bin
+
+      - name: QEMU smoke test
+        run: |
+          timeout 10 qemu-system-i386 -fda src/build/os-image.bin \
+            -display none -serial stdio -no-reboot || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: os-image
+          path: src/build/os-image.bin
+          retention-days: 30
+          if-no-files-found: error
