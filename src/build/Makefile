@@ -1,40 +1,45 @@
-C_FILES = $(shell find ../kernel/*.c ../drivers/*.c ../*.c)
-temp = $(notdir $(C_FILES))
-O_FILES = ${temp:.c=.o}
+# language: Makefile, file: src/build/Makefile, target: os-project i386
+# Сборка: os-image.bin (bootsect + kernel), ISO отдельно
+CC      = i386-elf-gcc
+LD      = i386-elf-ld
+NASM    = nasm
+CFLAGS  = -g -ffreestanding -c
 
-# флаг для дебага для gcc
-CFLAGS = -g
+OBJS = kernel_entry.o kernel.o utils.o lowlevel_io.o screen.o common.o
 
-run: os-image.bin
-	qemu-system-i386 -fda os-image.bin
-	make clean
+.PHONY: all clean run
 
-debug: os-image.bin kernel.elf
-	# kernel.elf нужен для gdb как symbol-file
-	# флаг -s указывает qemu открыть и прослушивать 1234 порт
-	# чтобы gdb смог соединиться с ним для дебага
-	# флаг -S указыает QEMU не запускать образ и подождать подключений
-	qemu-system-i386 -s -S -fda os-image.bin
-	make clean
+all: os-image.bin
 
 os-image.bin: bootsect.bin kernel.bin
 	cat bootsect.bin kernel.bin > os-image.bin
 
 bootsect.bin:
-	cd ../boot/ && nasm bootsect.asm -f bin -o ../build/bootsect.bin && cd -
+	cd ../boot && $(NASM) bootsect.asm -f bin -o ../build/bootsect.bin
 
-kernel.bin: kernel_entry.o kernel.o
-	i386-elf-ld -o kernel.bin -Ttext 0x1000 kernel_entry.o $(O_FILES) --oformat binary
+kernel.bin: $(OBJS)
+	$(LD) -o $@ -Ttext 0x1000 $^ --oformat binary
 
-kernel_entry.o:
-	nasm ../boot/kernel_entry.asm -f elf -o kernel_entry.o
+kernel_entry.o: ../boot/kernel_entry.asm
+	$(NASM) $< -f elf -o $@
 
-kernel.o:
-	i386-elf-gcc ${CFLAGS} -ffreestanding -c $(C_FILES)
+kernel.o: ../kernel/kernel.c
+	$(CC) $(CFLAGS) $< -o $@
 
-kernel.elf: kernel_entry.o kernel.o 
-	# как kernel.bin только без --oformat binary
-	i386-elf-ld -o kernel.bin -Ttext 0x1000 kernel_entry.o $(O_FILES) -o kernel.elf
+utils.o: ../kernel/utils.c
+	$(CC) $(CFLAGS) $< -o $@
+
+lowlevel_io.o: ../drivers/lowlevel_io.c
+	$(CC) $(CFLAGS) $< -o $@
+
+screen.o: ../drivers/screen.c
+	$(CC) $(CFLAGS) $< -o $@
+
+common.o: ../common.c
+	$(CC) $(CFLAGS) $< -o $@
+
+run: os-image.bin
+	qemu-system-i386 -fda os-image.bin
 
 clean:
-	rm *.bin *.o *.elf
+	rm -f *.o *.bin
